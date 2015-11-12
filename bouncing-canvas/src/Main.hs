@@ -2,25 +2,24 @@
 
 module Main where
 
-import           JsImports                     (now)
-
-import           GHCJS.DOM                     (currentDocument, currentWindow)
-import           GHCJS.DOM.Document            (documentGetBody,
-                                                documentGetElementById)
-import           GHCJS.DOM.Element             (elementGetOffsetLeft,
-                                                elementGetOffsetTop)
-import           GHCJS.DOM.EventTargetClosures
-import           GHCJS.DOM.HTMLElement         (htmlElementGetInnerHTML,
-                                                htmlElementSetInnerHTML)
-import           GHCJS.DOM.Types               (Element, IsDocument, MouseEvent,
-                                                unElement)
-import           GHCJS.DOM.UIEvent             (uiEventGetPageX,
-                                                uiEventGetPageY)
-import qualified JavaScript.Canvas             as C
-import           Linear
-
+import           GHCJS.DOM                     ( currentDocument
+                                               , currentWindow )
+import           GHCJS.DOM.Document            ( getBody
+                                               , getElementById )
+import           GHCJS.DOM.Element             ( getOffsetLeft
+                                               , getOffsetTop
+                                               , getInnerHTML )
+import           GHCJS.DOM.Element             ( setInnerHTML )
+import           GHCJS.DOM.EventTarget         ( addEventListener )
+import           GHCJS.DOM.EventTargetClosures ( eventListenerNew )
+import           GHCJS.DOM.Types               ( Element, IsDocument
+                                               , MouseEvent, unElement )
+import           GHCJS.DOM.UIEvent             ( getPageX, getPageY )
 import           GHCJS.Foreign
 import           GHCJS.Types
+import qualified JavaScript.Web.Canvas         as C
+import           JsImports                     (now)
+
 
 import           Control.Applicative
 import           Control.Concurrent
@@ -29,6 +28,7 @@ import           Control.Monad                 hiding (sequence_)
 import           Data.Foldable                 (minimumBy)
 import           Data.Ord
 import           Data.Semigroup
+import           Linear
 
 data State = State
                { pos      :: V2D
@@ -49,11 +49,12 @@ main = do
   state <- newMVar $ initialState t0
   -- get Canvas context
   Just doc <- currentDocument
-  Just body <- documentGetBody doc
-  htmlElementSetInnerHTML body initialHtml
-  Just canvas <- documentGetElementById doc "dia"
+  Just body <- getBody doc
+  setInnerHTML body (Just initialHtml)
+  Just canvas <- getElementById doc "dia"
   ctx <- getContext canvas
-  eventTargetAddEventListener canvas "click" False $ newBall state
+  listener <- eventListenerNew (newBall state canvas)
+  addEventListener canvas "click" (Just listener) False
   forever $ do
     s <- takeMVar state
     render ctx s
@@ -89,10 +90,10 @@ physics' s@(State { pos, velocity, time}) t = case collision s t of
 newBall :: MVar State -> Element -> MouseEvent -> IO ()
 newBall mstate canvas ev = do
     Just win <- currentWindow
-    x <- fromIntegral <$> uiEventGetPageX ev
-    y <- fromIntegral <$> uiEventGetPageY ev
-    x0 <- elementGetOffsetLeft canvas
-    y0 <-  elementGetOffsetTop canvas
+    x <- fromIntegral <$> getPageX ev
+    y <- fromIntegral <$> getPageY ev
+    x0 <- getOffsetLeft canvas
+    y0 <- getOffsetTop canvas
     let x' = (x - x0) / 200
     let y' = (y - y0) / 200
     modifyMVar_ mstate (\s -> return $ s {pos = V2 x' y'})
@@ -132,7 +133,7 @@ reflect South (V2 x y) = V2 x (-y)
 
 getContext :: Element -> IO C.Context
 getContext el = do
-  C.getContext . castRef . unElement $ el
+  C.getContext . C.unsafeToCanvas. unElement $ el
 
 initialHtml :: String
 initialHtml = "<canvas id=\"dia\" width=\"200\" height=\"200\" style=\"border: 1px solid\"></canvas>"
